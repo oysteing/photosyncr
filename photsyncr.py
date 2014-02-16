@@ -1,4 +1,4 @@
-import configparser
+import ConfigParser
 import json
 import logging.config
 import time
@@ -13,7 +13,7 @@ settings = {}
 def loadSettings():
     try:
         configfile = 'settings.conf'
-        config = configparser.ConfigParser()
+        config = ConfigParser.ConfigParser()
         config.read(configfile)
         settings = config.defaults()
     
@@ -32,15 +32,15 @@ def loadSettings():
 def scanDirectories(imagedir):
     directories = {}
     logging.debug("Scanning %s recursively for files with extension .jpg", imagedir)
-    for root, _, files, dirfd in os.fwalk(imagedir):
+    for root, _, files in os.walk(imagedir):
         filepairs = set()
         if (".skipsync" in files):
             logging.debug("Skip synchronization of %s", root)
             continue
-        for file in files:
-            extension = file.split(".")[-1].lower()
+        for filename in files:
+            extension = filename.split(".")[-1].lower()
             if (extension == "jpg"):
-                filepairs.add((file, os.stat(file, dir_fd=dirfd).st_size))
+                filepairs.add((filename, os.stat(os.path.join(root, filename)).st_size))
         if len(filepairs) > 0:
             directories[root] = filepairs
     return directories
@@ -62,30 +62,22 @@ def printDupes(dupedirs, directories):
         (dir1, dir2) = dupedir
         logging.info("%s of %s/%s duplicates in %s and %s", len(files), len(directories[dir1]), len(directories[dir2]), dir1, dir2)
         if (logging.root.isEnabledFor(logging.DEBUG)):
-            for file in files:
-                logging.debug("Duplicate (file,size): %s", file)
+            for filename in files:
+                logging.debug("Duplicate (file,size): %s", filename)
     if len(sorteddupes) == 0:
         logging.info("No duplicate files found")
         
 def upload(directories):
     for directory in directories:
         logging.debug(directory)
-        for (file, _) in directories[directory]:
-            uploadImage(os.path.join(directory, file))
+        for (filename, _) in directories[directory]:
+            uploadImage(os.path.join(directory, filename))
 
-def uploadImage(file):
-    logging.debug("Uploading image %s", file)
+def uploadImage(filename):
+    logging.debug("Uploading image %s", filename)
     flickr = flickrapi.FlickrAPI("ca4f6933e5e33581d9e0f8c5324190e8", "b2971103378e60de")
-    flickr.flickr_oauth.get_request_token("oob")
-    authorize_url = flickr.flickr_oauth.auth_url(perms='write')
-    print("Go to the following link in your browser to authorize this application:")
-    print(authorize_url)
-    print()
-    flickr.flickr_oauth.verifier = input('Enter the verifier: ')
-    token = flickr.flickr_oauth.get_access_token()
-    logging.debug("Token=%s",token)
-    flickr.token_cache.token = token 
-    flickr.upload(file)
+    flickr.authenticate_console(perms='write')
+    flickr.upload(filename)
 
 def reportDuplicates(imagedir):
     directories = scanDirectories(imagedir)
