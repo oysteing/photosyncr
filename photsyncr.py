@@ -66,23 +66,37 @@ def printDupes(dupedirs, directories):
                 logging.debug("Duplicate (file,size): %s", filename)
     if len(sorteddupes) == 0:
         logging.info("No duplicate files found")
-        
-def upload(directories):
-    for directory in directories:
-        logging.debug(directory)
-        for (filename, _) in directories[directory]:
-            uploadImage(os.path.join(directory, filename))
-
-def uploadImage(filename):
-    logging.debug("Uploading image %s", filename)
-    flickr = flickrapi.FlickrAPI("ca4f6933e5e33581d9e0f8c5324190e8", "b2971103378e60de")
-    flickr.authenticate_console(perms='write')
-    flickr.upload(filename)
 
 def reportDuplicates(imagedir):
     directories = scanDirectories(imagedir)
     dupedirs = compareDirectories(directories)
     printDupes(dupedirs, directories)
+
+class Flickr:
+    
+    def __init__(self):
+        self.flickr = flickrapi.FlickrAPI("ca4f6933e5e33581d9e0f8c5324190e8", "b2971103378e60de")
+        self.flickr.authenticate_console(perms='write')
+        
+    def upload(self, directories):
+        for directory in directories:
+            logging.debug(directory)
+            photos = []
+            for (filename, _) in directories[directory]:
+                photos.append(self.uploadImage(os.path.join(directory, filename)))
+            self.createPhotoset(directory, photos)
+    
+    def uploadImage(self, filename):
+        logging.debug("Uploading image %s", filename)
+        rsp = self.flickr.upload(filename)
+        return rsp.find('photoid').text
+        
+    def createPhotoset(self, directory, photos):
+        title = os.path.basename(directory)
+        logging.debug("Creating photoset %s", title)
+        rsp = self.flickr.photosets_create(title=title, primary_photo_id=photos[0])
+        photosetid = rsp.find('photoset').attrib['id'] 
+        self.flickr.photosets_editPhotos(photoset_id=photosetid, primary_photo_id=photos[0], photo_ids=",".join(photos))        
 
 if __name__ == "__main__":
     # Set up logging
@@ -102,6 +116,6 @@ if __name__ == "__main__":
     directories = scanDirectories(settings['imagedir'])
     logging.debug("Found %s directories with images", len(directories))
     
-    upload(directories)
+    Flickr().upload(directories)
         
     logging.info("Sync ended after %s seconds", time.time() - start)
