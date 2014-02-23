@@ -114,6 +114,7 @@ class Flickr:
         
     def upload(self, directories):
         for directory in directories:
+            tickets = []
             photos = []
             for filename in directories[directory]:
                 path = os.path.join(directory, filename)
@@ -121,7 +122,8 @@ class Flickr:
                 tries.reverse()
                 for triesRemaining in tries:
                     try:
-                        photoid = self.uploadImage(path)
+                        ticketid = self.uploadImageAsync(path)
+                        tickets.append(ticketid)
                     except Exception:
                         if triesRemaining <= 0:
                             raise
@@ -129,17 +131,54 @@ class Flickr:
                             logging.exception("An error occured while uploading photo. Doing retry number %s", triesRemaining)
                     else:
                         break
-                photos.append((path, photoid))
+            photos = self.checkTickets(tickets)
+            
             if len(photos) > 0:
-                self.createPhotoset(directory, [photo[1] for photo in photos])
+                self.createPhotoset(directory, photos)
                 cacheNewPhotos(directory[len(settings['photodir']):], directories[directory])
+    
+    def checkTickets(self, tickets):
+        count = 1000
+        while not self.isCompleted(tickets) and count > 0:
+            logging.debug("Waiting for photos to complete")
+            time.sleep(1)
+            count -= 1
+        # TODO remove unneccesary call
+        rsp = self.flickr.photos_upload_checkTickets(tickets=",".join(tickets))
+        ticks = rsp.findall("uploader/ticket")
+        photos = []
+        for tick in ticks:
+            photoid = tick.attrib['photoid']
+            photos.append(photoid)
+        return photos
+            
+    def isCompleted(self, tickets):
+        rsp = self.flickr.photos_upload_checkTickets(tickets=",".join(tickets))
+        ticks = rsp.findall("uploader/ticket")
+        for tick in ticks:
+            status = tick.attrib['complete']
+            if int(status) == 0:
+                return False
+            elif int(status) == 1:
+                continue
+            elif int(status) == 2:
+                raise Exception("One or more photos could not be processed by Flickr (probably unable to convert the file)")
+            else:
+                raise Exception("Got unexpected status " + status + " from photos.upload.checkTickets")
+        return True
     
     def uploadImage(self, path):
         photoTag = '#' + path.replace(' ', '#')[len(settings['photodir']):]
         logging.debug("Uploading image %s with tag %s", path, photoTag)
         rsp = self.flickr.upload(path, tags=photoTag)
         return rsp.find('photoid').text
-        
+    
+    def uploadImageAsync(self, path):
+        photoTag = '#' + path.replace(' ', '#')[len(settings['photodir']):]
+        logging.debug("Uploading image %s with tag %s", path, photoTag)
+        rsp = self.flickr.upload(path, tags=photoTag, async=1)
+        return rsp.find('ticketid').text
+    
     def createPhotoset(self, directory, photos):
         title = os.path.basename(directory)
         if title in self.photosets:
