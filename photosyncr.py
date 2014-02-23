@@ -100,7 +100,6 @@ class Flickr:
     def __init__(self):
         self.flickr = flickrapi.FlickrAPI("ca4f6933e5e33581d9e0f8c5324190e8", "b2971103378e60de")
         try:
-            raise webbrowser.Error("Har ingen nettleser")
             self.flickr.authenticate_console(perms='write')
         except webbrowser.Error:
             # No browser support, authenticate with console only
