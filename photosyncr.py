@@ -9,6 +9,7 @@ import itertools
 import flickrapi
 import shelve
 from _collections import defaultdict
+import webbrowser
 
 settings = {}
 extensions = ('jpg', 'jpeg', 'png', 'gif', 'avi', 'mpg', 'mp4', 'mpeg', 'mov', 'm2ts', 'wmv')
@@ -98,7 +99,23 @@ class Flickr:
     
     def __init__(self):
         self.flickr = flickrapi.FlickrAPI("ca4f6933e5e33581d9e0f8c5324190e8", "b2971103378e60de")
-        self.flickr.authenticate_console(perms='write')
+        try:
+            raise webbrowser.Error("Har ingen nettleser")
+            self.flickr.authenticate_console(perms='write')
+        except webbrowser.Error:
+            # No browser support, authenticate with console only
+            self.authenticateConsole(perms='write')
+
+    def authenticateConsole(self, perms='read'):
+        # get the frob
+        logging.debug("Getting frob for new token")
+        rsp = self.flickr.auth_getFrob(auth_token=None, format='xmlnode')
+        frob = rsp.frob[0].text
+
+        # ask user to validate
+        auth_url = self.flickr.auth_url(perms, frob)
+        token = raw_input("Please open " + auth_url + " in a browser, authorize this program and press ENTER")
+        self.flickr.get_token_part_two((token, frob))
 
     @property        
     def photosets(self):
