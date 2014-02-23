@@ -8,14 +8,15 @@ import argparse
 import itertools
 import flickrapi
 import shelve
-import xml.etree.ElementTree as ET
+from _collections import defaultdict
 
 settings = {}
-extensions = ('jpg', 'jpeg', 'png', 'gif')
+extensions = ('jpg', 'jpeg', 'png', 'gif', 'avi', 'mpg', 'mp4', 'mpeg', 'mov', 'm2ts', 'wmv')
+moduledir = os.path.dirname(__file__)
 
 def loadSettings():
     try:
-        configfile = 'settings.conf'
+        configfile = os.path.join(moduledir, 'settings.conf')
         config = ConfigParser.ConfigParser()
         config.read(configfile)
         settings = config.defaults()
@@ -80,6 +81,7 @@ def reportDuplicates(photodir):
     
 def reportIgnoredFiles(photodir):
     logging.debug("Scanning %s recursively for files with extensions other than %s", photodir, extensions)
+    ignored = defaultdict(int)
     for root, _, files in os.walk(photodir):
         if ".skipsync" in files:
             logging.debug("Skip synchronization of %s", root)
@@ -87,7 +89,10 @@ def reportIgnoredFiles(photodir):
         for filename in files:
             extension = filename.split(".")[-1].lower()
             if extension not in extensions:
-                print(filename)
+                ignored[extension] += 1
+    sortedignored = sorted(ignored.items(), key=lambda t: t[1], reverse=True)
+    for (extension, count) in sortedignored:
+        print(".%s files: %s" % (extension, count))
     
 class Flickr:
     
@@ -112,10 +117,22 @@ class Flickr:
             photos = []
             for filename in directories[directory]:
                 path = os.path.join(directory, filename)
-                photoid = self.uploadImage(path)
+                tries = range(3)
+                tries.reverse()
+                for triesRemaining in tries:
+                    try:
+                        photoid = self.uploadImage(path)
+                    except Exception:
+                        if triesRemaining <= 0:
+                            raise
+                        else:
+                            logging.exception("An error occured while uploading photo. Doing retry number %s", triesRemaining)
+                    else:
+                        break
                 photos.append((path, photoid))
-            self.createPhotoset(directory, [photo[1] for photo in photos])
-            cacheNewPhotos(directory[len(settings['photodir']):], directories[directory])
+            if len(photos) > 0:
+                self.createPhotoset(directory, [photo[1] for photo in photos])
+                cacheNewPhotos(directory[len(settings['photodir']):], directories[directory])
     
     def uploadImage(self, path):
         photoTag = '#' + path.replace(' ', '#')[len(settings['photodir']):]
@@ -179,11 +196,14 @@ def removeCached(directories):
     newDirectories = {}
     for directory in directories:
         reldir = relativeDirectory(directory)
-        cached = cache[reldir]
-        logging.debug("Found cached photos in %s: %s. Removing from upload set %s", reldir, cached, directories[directory])
-        photos = directories[directory] - cached
-        if len(photos) > 0:
-            newDirectories[directory] = photos
+        if reldir in cache:
+            cached = cache[reldir]
+            logging.debug("Found cached photos in %s: %s. Removing from upload %s", reldir, cached, directories[directory])
+            photos = directories[directory] - cached
+            if len(photos) > 0:
+                newDirectories[directory] = photos
+        else:
+            newDirectories[directory] = directories[directory]
     cache.close()
     logging.debug("Kept %s of %s directories with images after removing cached (already uploaded) entries", len(newDirectories), len(directories))
     return newDirectories
@@ -200,7 +220,7 @@ def cacheNewPhotos(reldir, newPhotos):
 
 if __name__ == "__main__":
     # Set up logging
-    config = json.load(open('logging.conf'))
+    config = json.load(open(os.path.join(moduledir, 'logging.conf')))
     logging.config.dictConfig(config)
     
     settings = loadSettings()
